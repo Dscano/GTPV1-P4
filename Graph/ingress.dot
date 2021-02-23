@@ -1,0 +1,23 @@
+digraph ingress {
+subgraph cluster {
+graph [
+label="", labeljust=r, style=bold];
+0[label=__START__, margin="", shape=rectangle, style=solid];
+1[label=__EXIT__, margin="", shape=rectangle, style=solid];
+2[label="ingress.table0_control.table0", margin="", shape=ellipse, style=solid];
+3[label="!hdr.gtp_header.isValid();", margin="", shape=rectangle, style=solid];
+4[label="ingress.table_add_gtp.table_encap_gtp", margin="", shape=ellipse, style=solid];
+5[label="ingress.table_rem_gtp.table_decap_gtp", margin="", shape=ellipse, style=solid];
+6[label="local_metadata.int_meta.report == 1;", margin="", shape=rectangle, style=solid];
+7[label="clone3<standard_metadata_t>(CloneType.I2E, 500, standard_metadata);", margin="", shape=rectangle, style=solid];
+0 -> 2[label=""];
+2 -> 3[label=""];
+3 -> 4[label=TRUE];
+3 -> 5[label=FALSE];
+4 -> 6[label=""];
+5 -> 6[label=""];
+6 -> 7[label=TRUE];
+6 -> 1[label=FALSE];
+7 -> 1[label=""];
+}
+}

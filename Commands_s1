@@ -1,0 +1,42 @@
+mirroring_add 500 4
+
+table_add table0 set_egress 2054 00:04:00:00:00:00 00:04:00:00:00:03 => 1
+table_add table0 set_egress 2054 00:04:00:00:00:03 00:04:00:00:00:00 => 2
+
+table_add table0 set_egress 2048 00:04:00:00:00:00 00:04:00:00:00:03 => 1
+table_add table0 set_egress 2048 00:04:00:00:00:03 00:04:00:00:00:00 => 2
+
+table_add table0 set_egress 34667 00:04:00:00:00:00 00:04:00:00:00:03 => 1
+table_add table0 set_egress 34667 00:04:00:00:00:03 00:04:00:00:00:00 => 2
+
+table_add table0 set_egress 2054 00:04:00:00:00:03 ff:ff:ff:ff:ff:ff => 2
+table_add table0 set_egress 2054 00:04:00:00:00:00 ff:ff:ff:ff:ff:ff => 1
+
+table_add table0 set_egress 2054 00:04:00:00:00:01 00:04:00:00:00:02 => 1
+table_add table0 set_egress 2054 00:04:00:00:00:02 00:04:00:00:00:01 => 3
+
+table_add table0 set_egress 2048 00:04:00:00:00:01 00:04:00:00:00:02 => 1
+table_add table0 set_egress 2048 00:04:00:00:00:02 00:04:00:00:00:01 => 3
+
+table_add table0 set_egress 34667 00:04:00:00:00:01 00:04:00:00:00:02 => 1
+table_add table0 set_egress 34667 00:04:00:00:00:02 00:04:00:00:00:01 => 3
+
+table_add table0 set_egress 2054 00:04:00:00:00:01 ff:ff:ff:ff:ff:ff => 1
+table_add table0 set_egress 2054 00:04:00:00:00:02 ff:ff:ff:ff:ff:ff => 3
+
+table_add table_encap_gtp encap_gtp 10.0.0.13 10.0.0.10 1 => 1572912 163.162.13.196 1 0x01
+table_add table_encap_gtp encap_gtp 10.0.0.13 10.0.0.10 6 => 1572912 163.162.13.196 1 0x01
+table_add table_encap_gtp encap_gtp 10.0.0.13 10.0.0.10 17 => 1572912 163.162.13.196 1 0x01
+table_add table_encap_gtp encap_gtp 10.0.0.13 10.0.0.10 0x11 => 1572912 163.162.13.196 1 0x01
+
+table_add table_encap_gtp encap_gtp 10.0.0.12 10.0.0.11 1 => 8888888 163.162.13.196 1 0x01
+table_add table_encap_gtp encap_gtp 10.0.0.12 10.0.0.11 6 => 8888888 163.162.13.196 1 0x01
+table_add table_encap_gtp encap_gtp 10.0.0.12 10.0.0.11 17 => 8888888 163.162.13.196 1 0x01
+table_add table_encap_gtp encap_gtp 10.0.0.12 10.0.0.11 0x11 => 8888888 163.162.13.196 1 0x01
+
+table_add table_decap_gtp decap_gtp 1572912  => 2 0x01
+table_add table_decap_gtp decap_gtp 8888888  => 3 0x01
+
+table_add tb_generate_report do_report_encapsulation 0x01 10.0.0.13 => 00:04:00:00:00:00 00:04:00:00:00:10 127.0.0.1 10.0.0.10 54321 0x0a 0x01
+
+table_add tb_generate_report do_report_encapsulation 0x01 10.0.0.12 => 00:04:00:00:00:00 00:04:00:00:00:10 127.0.0.1 10.0.0.10 54321 0x0a 0x02

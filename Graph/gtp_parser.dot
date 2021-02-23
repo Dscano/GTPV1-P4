@@ -1,0 +1,22 @@
+digraph gtp_parser{
+start [shape=rectangle,label="start
+(hdr.ethernet.ether_type)"]
+parse_ipv4 [shape=rectangle,label="parse_ipv4
+(hdr.ipv4.protocol)"]
+parse_udp [shape=rectangle,label="parse_udp
+(hdr.udp.dst_port)"]
+parse_gtp_header [shape=rectangle,label="parse_gtp_header
+(hdr.internal_ipv4.protocol)"]
+internal_parse_udp [shape=rectangle,label="internal_parse_udp"]
+accept [shape=rectangle,label="accept"]
+reject [shape=rectangle,label="reject"]
+start -> parse_ipv4 [label="16w0x800"]
+start -> reject [label="fallthrough"]
+parse_ipv4 -> parse_udp [label="8w17"]
+parse_ipv4 -> reject [label="fallthrough"]
+parse_udp -> parse_gtp_header [label="16w2152"]
+parse_udp -> accept [label="default"]
+parse_gtp_header -> internal_parse_udp [label="8w17"]
+parse_gtp_header -> accept [label="default"]
+internal_parse_udp -> accept [label="always"]
+}

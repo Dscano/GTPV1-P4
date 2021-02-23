@@ -1,0 +1,1549 @@
+# 1 "main.p4"
+# 1 "<built-in>"
+# 1 "<command-line>"
+# 1 "main.p4"
+# 1 "/usr/local/share/p4c/p4include/core.p4" 1
+/*
+Copyright 2013-present Barefoot Networks, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+/* This is the P4-16 core library, which declares some built-in P4 constructs using P4 */
+
+
+
+
+/// Standard error codes.  New error codes can be declared by users.
+error {
+    NoError, /// No error.
+    PacketTooShort, /// Not enough bits in packet for 'extract'.
+    NoMatch, /// 'select' expression has no matches.
+    StackOutOfBounds, /// Reference to invalid element of a header stack.
+    HeaderTooShort, /// Extracting too many bits into a varbit field.
+    ParserTimeout, /// Parser execution time limit exceeded.
+    ParserInvalidArgument /// Parser operation was called with a value
+                           /// not supported by the implementation.
+}
+
+extern packet_in {
+    /// Read a header from the packet into a fixed-sized header @hdr and advance the cursor.
+    /// May trigger error PacketTooShort or StackOutOfBounds.
+    /// @T must be a fixed-size header type
+    void extract<T>(out T hdr);
+    /// Read bits from the packet into a variable-sized header @variableSizeHeader
+    /// and advance the cursor.
+    /// @T must be a header containing exactly 1 varbit field.
+    /// May trigger errors PacketTooShort, StackOutOfBounds, or HeaderTooShort.
+    void extract<T>(out T variableSizeHeader,
+                    in bit<32> variableFieldSizeInBits);
+    /// Read bits from the packet without advancing the cursor.
+    /// @returns: the bits read from the packet.
+    /// T may be an arbitrary fixed-size type.
+    T lookahead<T>();
+    /// Advance the packet cursor by the specified number of bits.
+    void advance(in bit<32> sizeInBits);
+    /// @return packet length in bytes.  This method may be unavailable on
+    /// some target architectures.
+    bit<32> length();
+}
+
+extern packet_out {
+    /// Write @hdr into the output packet, advancing cursor.
+    /// @T can be a header type, a header stack, a header_union, or a struct
+    /// containing fields with such types.
+    void emit<T>(in T hdr);
+}
+
+// TODO: remove from this file, convert to built-in
+/// Check a predicate @check in the parser; if the predicate is true do nothing,
+/// otherwise set the parser error to @toSignal, and transition to the `reject` state.
+extern void verify(in bool check, in error toSignal);
+
+/// Built-in action that does nothing.
+@noWarn("unused")
+action NoAction() {}
+
+/// Standard match kinds for table key fields.
+/// Some architectures may not support all these match kinds.
+/// Architectures can declare additional match kinds.
+match_kind {
+    /// Match bits exactly.
+    exact,
+    /// Ternary match, using a mask.
+    ternary,
+    /// Longest-prefix match.
+    lpm
+}
+# 2 "main.p4" 2
+# 1 "/usr/local/share/p4c/p4include/v1model.p4" 1
+/*
+Copyright 2013-present Barefoot Networks, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+/* P4-16 declaration of the P4 v1.0 switch model */
+
+/* Note 1: More details about the definition of v1model architecture
+ * can be found at the location below.
+ *
+ * https://github.com/p4lang/behavioral-model/blob/master/docs/simple_switch.md
+ *
+ * Note 2: There were several discussions among P4 working group
+ * members in early 2019 regarding exactly how resubmit, recirculate,
+ * and clone3 operations can be called anywhere in their respective
+ * controls, but the values of the fields to be preserved is the value
+ * they have when that control is finished executing.  That is how
+ * these operations are defined in P4_14.  See
+ * https://github.com/p4lang/behavioral-model/blob/master/docs/simple_switch.md#restrictions-on-recirculate-resubmit-and-clone-operations
+ * for more details on the current state of affairs.
+ *
+ * Note 3: There are at least some P4_14 implementations where
+ * invoking a generate_digest operation on a field_list will create a
+ * message to the control plane that contains the values of those
+ * fields when the ingress control is finished executing, which can be
+ * different than the values those fields have at the time the
+ * generate_digest operation is invoked in the program, if those field
+ * values are changed later in the execution of the P4_14 ingress
+ * control.
+ *
+ * The P4_16 plus v1model implementation should always create digest
+ * messages that contain the values of the specified fields at the
+ * time that the digest extern function is called.  Thus if a P4_14
+ * program expecting the behavior described above is compiled using
+ * p4c, it may behave differently.
+ */
+
+
+
+
+# 1 "/usr/local/share/p4c/p4include/core.p4" 1
+/*
+Copyright 2013-present Barefoot Networks, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+/* This is the P4-16 core library, which declares some built-in P4 constructs using P4 */
+# 53 "/usr/local/share/p4c/p4include/v1model.p4" 2
+
+
+
+
+
+match_kind {
+    range,
+    // Either an exact match, or a wildcard (matching any value).
+    optional,
+    // Used for implementing dynamic_action_selection
+    selector
+}
+
+const bit<32> __v1model_version = 20180101;
+
+
+
+
+
+@metadata @name("standard_metadata")
+struct standard_metadata_t {
+
+
+
+
+
+    bit<9> ingress_port;
+    bit<9> egress_spec;
+    bit<9> egress_port;
+
+    bit<32> instance_type;
+    bit<32> packet_length;
+    //
+    // @alias is used to generate the field_alias section of the BMV2 JSON.
+    // Field alias creates a mapping from the metadata name in P4 program to
+    // the behavioral model's internal metadata name. Here we use it to
+    // expose all metadata supported by simple switch to the user through
+    // standard_metadata_t.
+    //
+    // flattening fields that exist in bmv2-ss
+    // queueing metadata
+    @alias("queueing_metadata.enq_timestamp")
+    bit<32> enq_timestamp;
+    @alias("queueing_metadata.enq_qdepth")
+    bit<19> enq_qdepth;
+    @alias("queueing_metadata.deq_timedelta")
+    bit<32> deq_timedelta;
+    /// queue depth at the packet dequeue time.
+    @alias("queueing_metadata.deq_qdepth")
+    bit<19> deq_qdepth;
+
+    // intrinsic metadata
+    @alias("intrinsic_metadata.ingress_global_timestamp")
+    bit<48> ingress_global_timestamp;
+    @alias("intrinsic_metadata.egress_global_timestamp")
+    bit<48> egress_global_timestamp;
+    /// multicast group id (key for the mcast replication table)
+    @alias("intrinsic_metadata.mcast_grp")
+    bit<16> mcast_grp;
+    /// Replication ID for multicast
+    @alias("intrinsic_metadata.egress_rid")
+    bit<16> egress_rid;
+    /// Indicates that a verify_checksum() method has failed.
+    /// 1 if a checksum error was found, otherwise 0.
+    bit<1> checksum_error;
+    /// Error produced by parsing
+    error parser_error;
+    /// set packet priority
+    @alias("intrinsic_metadata.priority")
+    bit<3> priority;
+}
+
+enum CounterType {
+    packets,
+    bytes,
+    packets_and_bytes
+}
+
+enum MeterType {
+    packets,
+    bytes
+}
+
+extern counter
+
+
+
+{
+    /***
+     * A counter object is created by calling its constructor.  This
+     * creates an array of counter states, with the number of counter
+     * states specified by the size parameter.  The array indices are
+     * in the range [0, size-1].
+     *
+     * You must provide a choice of whether to maintain only a packet
+     * count (CounterType.packets), only a byte count
+     * (CounterType.bytes), or both (CounterType.packets_and_bytes).
+     *
+     * Counters can be updated from your P4 program, but can only be
+     * read from the control plane.  If you need something that can be
+     * both read and written from the P4 program, consider using a
+     * register.
+     */
+    counter(bit<32> size, CounterType type);
+    // FIXME -- size arg should be `int` but that breaks typechecking
+
+    /***
+     * count() causes the counter state with the specified index to be
+     * read, modified, and written back, atomically relative to the
+     * processing of other packets, updating the packet count, byte
+     * count, or both, depending upon the CounterType of the counter
+     * instance used when it was constructed.
+     *
+     * @param index The index of the counter state in the array to be
+     *              updated, normally a value in the range [0,
+     *              size-1].  If index >= size, no counter state will be
+     *              updated.
+     */
+
+
+
+    void count(in bit<32> index);
+
+}
+
+extern direct_counter {
+    /***
+     * A direct_counter object is created by calling its constructor.
+     * You must provide a choice of whether to maintain only a packet
+     * count (CounterType.packets), only a byte count
+     * (CounterType.bytes), or both (CounterType.packets_and_bytes).
+     * After constructing the object, you can associate it with at
+     * most one table, by adding the following table property to the
+     * definition of that table:
+     *
+     *     counters = <object_name>;
+     *
+     * Counters can be updated from your P4 program, but can only be
+     * read from the control plane.  If you need something that can be
+     * both read and written from the P4 program, consider using a
+     * register.
+     */
+    direct_counter(CounterType type);
+    /***
+     * The count() method is actually unnecessary in the v1model
+     * architecture.  This is because after a direct_counter object
+     * has been associated with a table as described in the
+     * documentation for the direct_counter constructor, every time
+     * the table is applied and a table entry is matched, the counter
+     * state associated with the matching entry is read, modified, and
+     * written back, atomically relative to the processing of other
+     * packets, regardless of whether the count() method is called in
+     * the body of that action.
+     */
+    void count();
+}
+
+
+
+
+
+extern meter
+
+
+
+{
+    /***
+     * A meter object is created by calling its constructor.  This
+     * creates an array of meter states, with the number of meter
+     * states specified by the size parameter.  The array indices are
+     * in the range [0, size-1].  For example, if in your system you
+     * have 128 different "flows" numbered from 0 up to 127, and you
+     * want to meter each of those flows independently of each other,
+     * you could do so by creating a meter object with size=128.
+     *
+     * You must provide a choice of whether to meter based on the
+     * number of packets, regardless of their size
+     * (MeterType.packets), or based upon the number of bytes the
+     * packets contain (MeterType.bytes).
+     */
+    meter(bit<32> size, MeterType type);
+    // FIXME -- size arg should be `int` but that breaks typechecking
+
+    /***
+     * execute_meter() causes the meter state with the specified index
+     * to be read, modified, and written back, atomically relative to
+     * the processing of other packets, and an integer encoding of one
+     * of the colors green, yellow, or red to be written to the result
+     * out parameter.
+     *
+     * @param index The index of the meter state in the array to be
+     *              updated, normally a value in the range [0,
+     *              size-1].  If index >= size, no meter state will be
+     *              updated.
+     * @param result Type T must be bit<W> with W >= 2.  When index is
+     *              in range, the value of result will be assigned 0
+     *              for color GREEN, 1 for color YELLOW, and 2 for
+     *              color RED (see RFC 2697 and RFC 2698 for the
+     *              meaning of these colors).  When index is out of
+     *              range, the final value of result is not specified,
+     *              and should be ignored by the caller.
+     */
+
+
+
+    void execute_meter<T>(in bit<32> index, out T result);
+
+}
+
+extern direct_meter<T> {
+    /***
+     * A direct_meter object is created by calling its constructor.
+     * You must provide a choice of whether to meter based on the
+     * number of packets, regardless of their size
+     * (MeterType.packets), or based upon the number of bytes the
+     * packets contain (MeterType.bytes).  After constructing the
+     * object, you can associate it with at most one table, by adding
+     * the following table property to the definition of that table:
+     *
+     *     meters = <object_name>;
+     */
+    direct_meter(MeterType type);
+    /***
+     * After a direct_meter object has been associated with a table as
+     * described in the documentation for the direct_meter
+     * constructor, every time the table is applied and a table entry
+     * is matched, the meter state associated with the matching entry
+     * is read, modified, and written back, atomically relative to the
+     * processing of other packets, regardless of whether the read()
+     * method is called in the body of that action.
+     *
+     * read() may only be called within an action executed as a result
+     * of matching a table entry, of a table that has a direct_meter
+     * associated with it.  Calling read() causes an integer encoding
+     * of one of the colors green, yellow, or red to be written to the
+     * result out parameter.
+     *
+     * @param result Type T must be bit<W> with W >= 2.  The value of
+     *              result will be assigned 0 for color GREEN, 1 for
+     *              color YELLOW, and 2 for color RED (see RFC 2697
+     *              and RFC 2698 for the meaning of these colors).
+     */
+    void read(out T result);
+}
+
+
+
+
+extern register<T>
+
+{
+    /***
+     * A register object is created by calling its constructor.  This
+     * creates an array of 'size' identical elements, each with type
+     * T.  The array indices are in the range [0, size-1].  For
+     * example, this constructor call:
+     *
+     *     register<bit<32>>(512) my_reg;
+     *
+     * allocates storage for 512 values, each with type bit<32>.
+     */
+    register(bit<32> size); // FIXME -- arg should be `int` but that breaks typechecking
+    /***
+     * read() reads the state of the register array stored at the
+     * specified index, and returns it as the value written to the
+     * result parameter.
+     *
+     * @param index The index of the register array element to be
+     *              read, normally a value in the range [0, size-1].
+     * @param result Only types T that are bit<W> are currently
+     *              supported.  When index is in range, the value of
+     *              result becomes the value read from the register
+     *              array element.  When index >= size, the final
+     *              value of result is not specified, and should be
+     *              ignored by the caller.
+     */
+    @noSideEffects
+
+
+
+    void read(out T result, in bit<32> index);
+
+    /***
+     * write() writes the state of the register array at the specified
+     * index, with the value provided by the value parameter.
+     *
+     * If you wish to perform a read() followed later by a write() to
+     * the same register array element, and you wish the
+     * read-modify-write sequence to be atomic relative to other
+     * processed packets, then there may be parallel implementations
+     * of the v1model architecture for which you must execute them in
+     * a P4_16 block annotated with an @atomic annotation.  See the
+     * P4_16 language specification description of the @atomic
+     * annotation for more details.
+     *
+     * @param index The index of the register array element to be
+     *              written, normally a value in the range [0,
+     *              size-1].  If index >= size, no register state will
+     *              be updated.
+     * @param value Only types T that are bit<W> are currently
+     *              supported.  When index is in range, this
+     *              parameter's value is written into the register
+     *              array element specified by index.
+     */
+
+
+
+    void write(in bit<32> index, in T value);
+
+}
+
+// used as table implementation attribute
+extern action_profile {
+    action_profile(bit<32> size);
+}
+
+/***
+ * Generate a random number in the range lo..hi, inclusive, and write
+ * it to the result parameter.  The value written to result is not
+ * specified if lo > hi.
+ *
+ * @param T          Must be a type bit<W>
+ */
+extern void random<T>(out T result, in T lo, in T hi);
+
+/***
+ * Calling digest causes a message containing the values specified in
+ * the data parameter to be sent to the control plane software.  It is
+ * similar to sending a clone of the packet to the control plane
+ * software, except that it can be more efficient because the messages
+ * are typically smaller than packets, and many such small digest
+ * messages are typically coalesced together into a larger "batch"
+ * which the control plane software processes all at once.
+ *
+ * The value of the fields that are sent in the message to the control
+ * plane is the value they have at the time the digest call occurs,
+ * even if those field values are changed by later ingress control
+ * code.  See Note 3.
+ *
+ * Calling digest is only supported in the ingress control.  There is
+ * no way to undo its effects once it has been called.
+ *
+ * If the type T is a named struct, the name is used to generate the
+ * control plane API.
+ *
+ * The BMv2 implementation of the v1model architecture ignores the
+ * value of the receiver parameter.
+ */
+extern void digest<T>(in bit<32> receiver, in T data);
+
+enum HashAlgorithm {
+    crc32,
+    crc32_custom,
+    crc16,
+    crc16_custom,
+    random,
+    identity,
+    csum16,
+    xor16
+}
+
+@deprecated("Please use mark_to_drop(standard_metadata) instead.")
+extern void mark_to_drop();
+
+/***
+ * mark_to_drop(standard_metadata) is a primitive action that modifies
+ * standard_metadata.egress_spec to an implementation-specific special
+ * value that in some cases causes the packet to be dropped at the end
+ * of ingress or egress processing.  It also assigns 0 to
+ * standard_metadata.mcast_grp.  Either of those metadata fields may
+ * be changed by executing later P4 code, after calling
+ * mark_to_drop(), and this can change the resulting behavior of the
+ * packet to do something other than drop.
+ *
+ * See
+ * https://github.com/p4lang/behavioral-model/blob/master/docs/simple_switch.md
+ * -- in particular the section "Pseudocode for what happens at the
+ * end of ingress and egress processing" -- for the relative priority
+ * of the different possible things that can happen to a packet when
+ * ingress and egress processing are complete.
+ */
+@pure
+extern void mark_to_drop(inout standard_metadata_t standard_metadata);
+
+/***
+ * Calculate a hash function of the value specified by the data
+ * parameter.  The value written to the out parameter named result
+ * will always be in the range [base, base+max-1] inclusive, if max >=
+ * 1.  If max=0, the value written to result will always be base.
+ *
+ * Note that the types of all of the parameters may be the same as, or
+ * different from, each other, and thus their bit widths are allowed
+ * to be different.
+ *
+ * @param O          Must be a type bit<W>
+ * @param D          Must be a tuple type where all the fields are bit-fields (type bit<W> or int<W>) or varbits.
+ * @param T          Must be a type bit<W>
+ * @param M          Must be a type bit<W>
+ */
+@pure
+extern void hash<O, T, D, M>(out O result, in HashAlgorithm algo, in T base, in D data, in M max);
+
+extern action_selector {
+    action_selector(HashAlgorithm algorithm, bit<32> size, bit<32> outputWidth);
+}
+
+enum CloneType {
+    I2E,
+    E2E
+}
+
+@deprecated("Please use verify_checksum/update_checksum instead.")
+extern Checksum16 {
+    Checksum16();
+    bit<16> get<D>(in D data);
+}
+
+/***
+ * Verifies the checksum of the supplied data.  If this method detects
+ * that a checksum of the data is not correct, then the value of the
+ * standard_metadata checksum_error field will be equal to 1 when the
+ * packet begins ingress processing.
+ *
+ * Calling verify_checksum is only supported in the VerifyChecksum
+ * control.
+ *
+ * @param T          Must be a tuple type where all the tuple elements
+ *                   are of type bit<W>, int<W>, or varbit<W>.  The
+ *                   total length of the fields must be a multiple of
+ *                   the output size.
+ * @param O          Checksum type; must be bit<X> type.
+ * @param condition  If 'false' the verification always succeeds.
+ * @param data       Data whose checksum is verified.
+ * @param checksum   Expected checksum of the data; note that it must
+ *                   be a left-value.
+ * @param algo       Algorithm to use for checksum (not all algorithms
+ *                   may be supported).  Must be a compile-time
+ *                   constant.
+ */
+extern void verify_checksum<T, O>(in bool condition, in T data, in O checksum, HashAlgorithm algo);
+
+/***
+ * Computes the checksum of the supplied data and writes it to the
+ * checksum parameter.
+ *
+ * Calling update_checksum is only supported in the ComputeChecksum
+ * control.
+ *
+ * @param T          Must be a tuple type where all the tuple elements
+ *                   are of type bit<W>, int<W>, or varbit<W>.  The
+ *                   total length of the fields must be a multiple of
+ *                   the output size.
+ * @param O          Output type; must be bit<X> type.
+ * @param condition  If 'false' the checksum parameter is not changed
+ * @param data       Data whose checksum is computed.
+ * @param checksum   Checksum of the data.
+ * @param algo       Algorithm to use for checksum (not all algorithms
+ *                   may be supported).  Must be a compile-time
+ *                   constant.
+ */
+@pure
+extern void update_checksum<T, O>(in bool condition, in T data, inout O checksum, HashAlgorithm algo);
+
+/***
+ * verify_checksum_with_payload is identical in all ways to
+ * verify_checksum, except that it includes the payload of the packet
+ * in the checksum calculation.  The payload is defined as "all bytes
+ * of the packet which were not parsed by the parser".
+ *
+ * Calling verify_checksum_with_payload is only supported in the
+ * VerifyChecksum control.
+ */
+extern void verify_checksum_with_payload<T, O>(in bool condition, in T data, in O checksum, HashAlgorithm algo);
+
+/**
+ * update_checksum_with_payload is identical in all ways to
+ * update_checksum, except that it includes the payload of the packet
+ * in the checksum calculation.  The payload is defined as "all bytes
+ * of the packet which were not parsed by the parser".
+ *
+ * Calling update_checksum_with_payload is only supported in the
+ * ComputeChecksum control.
+ */
+@noSideEffects
+extern void update_checksum_with_payload<T, O>(in bool condition, in T data, inout O checksum, HashAlgorithm algo);
+
+/***
+ * Calling resubmit during execution of the ingress control will,
+ * under certain documented conditions, cause the packet to be
+ * resubmitted, i.e. it will begin processing again with the parser,
+ * with the contents of the packet exactly as they were when it last
+ * began parsing.  The only difference is in the value of the
+ * standard_metadata instance_type field, and any user-defined
+ * metadata fields that the resubmit operation causes to be
+ * preserved.
+ *
+ * The value of the user-defined metadata fields that are preserved in
+ * resubmitted packets is the value they have at the end of ingress
+ * processing, not their values at the time the resubmit call is made.
+ * See Note 2 for issues with this.
+ *
+ * Calling resubmit is only supported in the ingress control.  There
+ * is no way to undo its effects once it has been called.  If resubmit
+ * is called multiple times during a single execution of the ingress
+ * control, only one packet is resubmitted, and only the data from the
+ * last such call is preserved.  See the v1model architecture
+ * documentation (Note 1) for more details.
+ */
+extern void resubmit<T>(in T data);
+
+/***
+ * Calling recirculate during execution of the egress control will,
+ * under certain documented conditions, cause the packet to be
+ * recirculated, i.e. it will begin processing again with the parser,
+ * with the contents of the packet as they are created by the
+ * deparser.  Recirculated packets can be distinguished from new
+ * packets in ingress processing by the value of the standard_metadata
+ * instance_type field.  The caller may request that some user-defined
+ * metadata fields be preserved with the recirculated packet.
+ *
+ * The value of the user-defined metadata fields that are preserved in
+ * recirculated packets is the value they have at the end of egress
+ * processing, not their values at the time the recirculate call is
+ * made.  See Note 2 for issues with this.
+ *
+ * Calling recirculate is only supported in the egress control.  There
+ * is no way to undo its effects once it has been called.  If
+ * recirculate is called multiple times during a single execution of
+ * the egress control, only one packet is recirculated, and only the
+ * data from the last such call is preserved.  See the v1model
+ * architecture documentation (Note 1) for more details.
+ */
+extern void recirculate<T>(in T data);
+
+/***
+ * clone is in most ways identical to the clone3 operation, with the
+ * only difference being that it never preserves any user-defined
+ * metadata fields with the cloned packet.  It is equivalent to
+ * calling clone3 with the same type and session parameter values,
+ * with empty data.
+ */
+extern void clone(in CloneType type, in bit<32> session);
+
+/***
+ * Calling clone3 during execution of the ingress or egress control
+ * will cause the packet to be cloned, sometimes also called
+ * mirroring, i.e. zero or more copies of the packet are made, and
+ * each will later begin egress processing as an independent packet
+ * from the original packet.  The original packet continues with its
+ * normal next steps independent of the clone(s).
+ *
+ * The session parameter is an integer identifying a clone session id
+ * (sometimes called a mirror session id).  The control plane software
+ * must configure each session you wish to use, or else no clones will
+ * be made using that session.  Typically this will involve the
+ * control plane software specifying one output port to which the
+ * cloned packet should be sent, or a list of (port, egress_rid) pairs
+ * to which a separate clone should be created for each, similar to
+ * multicast packets.
+ *
+ * Cloned packets can be distinguished from others by the value of the
+ * standard_metadata instance_type field.
+ *
+ * The caller may request that some user-defined metadata field values
+ * from the original packet should be preserved with the cloned
+ * packet(s).  The value of the user-defined metadata fields that are
+ * preserved with cloned packets is the value they have at the end of
+ * ingress or egress processing, not their values at the time the
+ * clone3 call is made.  See Note 2 for issues with this.
+ *
+ * If clone3 is called during ingress processing, the first parameter
+ * must be CloneType.I2E.  If clone3 is called during egress
+ * processing, the first parameter must be CloneType.E2E.
+ *
+ * There is no way to undo its effects once it has been called.  If
+ * there are multiple calls to clone3 and/or clone during a single
+ * execution of the same ingress (or egress) control, only the last
+ * clone session and data are used.  See the v1model architecture
+ * documentation (Note 1) for more details.
+ */
+extern void clone3<T>(in CloneType type, in bit<32> session, in T data);
+
+extern void truncate(in bit<32> length);
+
+/***
+ * Calling assert when the argument is true has no effect, except any
+ * effect that might occur due to evaluation of the argument (but see
+ * below).  If the argument is false, the precise behavior is
+ * target-specific, but the intent is to record or log which assert
+ * statement failed, and optionally other information about the
+ * failure.
+ *
+ * For example, on the simple_switch target, executing an assert
+ * statement with a false argument causes a log message with the file
+ * name and line number of the assert statement to be printed, and
+ * then the simple_switch process exits.
+ *
+ * If you provide the --ndebug command line option to p4c when
+ * compiling, the compiled program behaves as if all assert statements
+ * were not present in the source code.
+ *
+ * We strongly recommend that you avoid using expressions as an
+ * argument to an assert call that can have side effects, e.g. an
+ * extern method or function call that has side effects.  p4c will
+ * allow you to do this with no warning given.  We recommend this
+ * because, if you follow this advice, your program will behave the
+ * same way when assert statements are removed.
+ */
+extern void assert(in bool check);
+
+/***
+ * For the purposes of compiling and executing P4 programs on a target
+ * device, assert and assume are identical, including the use of the
+ * --ndebug p4c option to elide them.  See documentation for assert.
+ *
+ * The reason that assume exists as a separate function from assert is
+ * because they are expected to be used differently by formal
+ * verification tools.  For some formal tools, the goal is to try to
+ * find example packets and sets of installed table entries that cause
+ * an assert statement condition to be false.
+ *
+ * Suppose you run such a tool on your program, and the example packet
+ * given is an MPLS packet, i.e. hdr.ethernet.etherType == 0x8847.
+ * You look at the example, and indeed it does cause an assert
+ * condition to be false.  However, your plan is to deploy your P4
+ * program in a network in places where no MPLS packets can occur.
+ * You could add extra conditions to your P4 program to handle the
+ * processing of such a packet cleanly, without assertions failing,
+ * but you would prefer to tell the tool "such example packets are not
+ * applicable in my scenario -- never show them to me".  By adding a
+ * statement:
+ *
+ *     assume(hdr.ethernet.etherType != 0x8847);
+ *
+ * at an appropriate place in your program, the formal tool should
+ * never show you such examples -- only ones that make all such assume
+ * conditions true.
+ *
+ * The reason that assume statements behave the same as assert
+ * statements when compiled to a target device is that if the
+ * condition ever evaluates to false when operating in a network, it
+ * is likely that your assumption was wrong, and should be reexamined.
+ */
+extern void assume(in bool check);
+
+/*
+ * Log user defined messages
+ * Example: log_msg("User defined message");
+ * or log_msg("Value1 = {}, Value2 = {}",{value1, value2});
+ */
+extern void log_msg(string msg);
+extern void log_msg<T>(string msg, in T data);
+
+// The name 'standard_metadata' is reserved
+
+/*
+ * Architecture.
+ *
+ * M must be a struct.
+ *
+ * H must be a struct where every one if its members is of type
+ * header, header stack, or header_union.
+ */
+
+parser Parser<H, M>(packet_in b,
+                    out H parsedHdr,
+                    inout M meta,
+                    inout standard_metadata_t standard_metadata);
+
+/*
+ * The only legal statements in the body of the VerifyChecksum control
+ * are: block statements, calls to the verify_checksum and
+ * verify_checksum_with_payload methods, and return statements.
+ */
+control VerifyChecksum<H, M>(inout H hdr,
+                             inout M meta);
+@pipeline
+control Ingress<H, M>(inout H hdr,
+                      inout M meta,
+                      inout standard_metadata_t standard_metadata);
+@pipeline
+control Egress<H, M>(inout H hdr,
+                     inout M meta,
+                     inout standard_metadata_t standard_metadata);
+
+/*
+ * The only legal statements in the body of the ComputeChecksum
+ * control are: block statements, calls to the update_checksum and
+ * update_checksum_with_payload methods, and return statements.
+ */
+control ComputeChecksum<H, M>(inout H hdr,
+                              inout M meta);
+
+/*
+ * The only legal statements in the body of the Deparser control are:
+ * calls to the packet_out.emit() method.
+ */
+@deparser
+control Deparser<H>(packet_out b, in H hdr);
+
+package V1Switch<H, M>(Parser<H, M> p,
+                       VerifyChecksum<H, M> vr,
+                       Ingress<H, M> ig,
+                       Egress<H, M> eg,
+                       ComputeChecksum<H, M> ck,
+                       Deparser<H> dep
+                       );
+# 3 "main.p4" 2
+
+# 1 "include/defines.p4" 1
+# 10 "include/defines.p4"
+//REPORT
+# 27 "include/defines.p4"
+typedef bit<32> ip_address_t;
+typedef bit<32> teid_t;
+typedef bit<32> dst_t;
+typedef bit<9> port_t;
+typedef bit<48> mac_t;
+typedef bit<16> l4_port_t;
+typedef bit<32> sw_id_t;
+typedef bit<32> seq_t;
+typedef bit<1> report_t;
+const port_t CPU_PORT = 255;
+# 47 "include/defines.p4"
+const bit<4> IPV4_MIN_IHL = 5;
+const bit<8> DEFAULT_IPV4_TTL = 57;
+# 5 "main.p4" 2
+# 1 "include/int_definitions.p4" 1
+/* -*- P4_16 -*- */
+
+
+
+# 1 "include/defines.p4" 1
+# 6 "include/int_definitions.p4" 2
+
+typedef bit<48> timestamp_t;
+typedef bit<32> switch_id_t;
+
+const bit<8> INT_HEADER_LEN_WORD = 3;
+const bit<16> INT_HEADER_SIZE = 8;
+const bit<16> INT_SHIM_HEADER_SIZE = 4;
+
+const bit<8> CPU_MIRROR_SESSION_ID = 250;
+const bit<32> REPORT_MIRROR_SESSION_ID = 500;
+const bit<6> HW_ID = 1;
+const bit<8> REPORT_HDR_TTL = 64;
+
+//#ifdef TARGET_BMV2
+// These definitions are from:
+// https://github.com/jafingerhut/p4-guide/blob/master/v1model-special-ops/v1model-special-ops.p4
+
+// These definitions are derived from the numerical values of the enum
+// named "PktInstanceType" in the p4lang/behavioral-model source file
+// targets/simple_switch/simple_switch.h
+// https://github.com/p4lang/behavioral-model/blob/master/targets/simple_switch/simple_switch.h#L126-L134
+
+const bit<32> BMV2_V1MODEL_INSTANCE_TYPE_NORMAL = 0;
+const bit<32> BMV2_V1MODEL_INSTANCE_TYPE_INGRESS_CLONE = 1;
+const bit<32> BMV2_V1MODEL_INSTANCE_TYPE_EGRESS_CLONE = 2;
+const bit<32> BMV2_V1MODEL_INSTANCE_TYPE_COALESCED = 3;
+const bit<32> BMV2_V1MODEL_INSTANCE_TYPE_RECIRC = 4;
+const bit<32> BMV2_V1MODEL_INSTANCE_TYPE_REPLICATION = 5;
+const bit<32> BMV2_V1MODEL_INSTANCE_TYPE_RESUBMIT = 6;
+
+
+
+
+
+
+//#endif // TARGET__BMV2
+# 6 "main.p4" 2
+# 1 "include/headers.p4" 1
+
+
+
+
+
+header ethernet_t {
+    bit<48> dst_addr;
+    bit<48> src_addr;
+    bit<16> ether_type;
+}
+const bit<8> ETH_HEADER_LEN = 14;
+
+header ipv4_t {
+    bit<4> version;
+    bit<4> ihl;
+    bit<6> dscp;
+    bit<2> ecn;
+    bit<16> len;
+    bit<16> identification;
+    bit<3> flags;
+    bit<13> frag_offset;
+    bit<8> ttl;
+    bit<8> protocol;
+    bit<16> hdr_checksum;
+    bit<32> src_addr;
+    bit<32> dst_addr;
+}
+
+const bit<8> IPV4_MIN_HEAD_LEN = 20;
+
+header udp_t {
+    bit<16> src_port;
+    bit<16> dst_port;
+    bit<16> length_;
+    bit<16> checksum;
+}
+
+const bit<8> UDP_HEADER_LEN = 8;
+# 7 "main.p4" 2
+# 1 "include/actions.p4" 1
+/*
+ * Copyright 2017-present Open Networking Foundation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+
+
+# 1 "include/headers.p4" 1
+# 21 "include/actions.p4" 2
+
+
+action nop() {
+    NoAction();
+}
+# 8 "main.p4" 2
+# 1 "include/checksums.p4" 1
+
+
+
+
+# 1 "include/gtp_headers.p4" 1
+/* -*- P4_16 -*- */
+
+
+
+
+
+
+# 1 "include/telemetry_report_headers.p4" 1
+
+
+
+const bit<3> NPROTO_ETHERNET = 0;
+
+// Report Telemetry Headers
+header report_fixed_header_t {
+    bit<4> ver;
+    bit<4> len;
+    bit<3> nproto;
+    bit<6> rep_md_bits;
+    bit<1> d;
+    bit<1> q;
+    bit<1> f;
+    bit<6> rsvd;
+    bit<6> hw_id;
+    bit<32> sw_id;
+    bit<32> seq_no;
+    bit<32> ingress_tstamp;
+    bit<32> engress_tstamp;
+}
+const bit<8> REPORT_FIXED_HEADER_LEN = 16;
+# 9 "include/gtp_headers.p4" 2
+
+// GTP v1 header
+header gtp_header_t {
+    bit<3> ver;
+    bit<1> pt;
+    bit<1> rsvd;
+    bit<1> e;
+    bit<1> s;
+    bit<1> pn;
+    bit<8> msgtype;
+    bit<16> total_len;
+    bit<32> teid;
+    //bit<16> sequence_number; 
+    //bit<8>  npdu; 
+    //bit<8>  next_ext_hdr;      // optional
+}
+
+
+struct headers_t {
+    // INT Report Encapsulation
+    ethernet_t report_ethernet;
+    ipv4_t report_ipv4;
+    udp_t report_udp;
+    // INT Report Headers
+    report_fixed_header_t report_fixed_header;
+    //local_report_t report_local;
+    // Original packet's headers
+    ethernet_t ethernet;
+    ipv4_t ipv4;
+    udp_t udp;
+    //ipv4_t internal_ipv4;
+    gtp_header_t gtp_header;
+    ipv4_t internal_ipv4;
+    udp_t internal_udp;
+}
+
+struct int_metadata_t {
+    bit<1> report;
+}
+
+struct local_metadata_t {
+    int_metadata_t int_meta;
+    bool compute_checksum;
+}
+# 6 "include/checksums.p4" 2
+
+control verify_checksum_control(inout headers_t hdr,
+                                inout local_metadata_t local_metadata) {
+    apply {
+        // Assume checksum is always correct.
+    }
+}
+
+control compute_checksum_control(inout headers_t hdr,
+                                 inout local_metadata_t local_metadata) {
+    apply {
+        update_checksum(hdr.ipv4.isValid(),
+            {
+                hdr.ipv4.version,
+                hdr.ipv4.ihl,
+                hdr.ipv4.dscp,
+                hdr.ipv4.ecn,
+                hdr.ipv4.len,
+                hdr.ipv4.identification,
+                hdr.ipv4.flags,
+                hdr.ipv4.frag_offset,
+                hdr.ipv4.ttl,
+                hdr.ipv4.protocol,
+                hdr.ipv4.src_addr,
+                hdr.ipv4.dst_addr
+            },
+            hdr.ipv4.hdr_checksum,
+            HashAlgorithm.csum16
+        );
+
+
+        update_checksum(hdr.internal_ipv4.isValid(),
+            {
+                hdr.internal_ipv4.version,
+                hdr.internal_ipv4.ihl,
+                hdr.internal_ipv4.dscp,
+                hdr.internal_ipv4.ecn,
+                hdr.internal_ipv4.len,
+                hdr.internal_ipv4.identification,
+                hdr.internal_ipv4.flags,
+                hdr.internal_ipv4.frag_offset,
+                hdr.internal_ipv4.ttl,
+                hdr.internal_ipv4.protocol,
+                hdr.internal_ipv4.src_addr,
+                hdr.internal_ipv4.dst_addr
+            },
+            hdr.internal_ipv4.hdr_checksum,
+            HashAlgorithm.csum16
+        );
+
+    }
+}
+# 9 "main.p4" 2
+
+# 1 "include/gtp_headers.p4" 1
+/* -*- P4_16 -*- */
+# 11 "main.p4" 2
+# 1 "include/gtp_parser.p4" 1
+/* -*- P4_16 -*- */
+
+
+
+parser gtp_parser (
+    packet_in packet,
+    out headers_t hdr,
+    inout local_metadata_t local_metadata,
+    inout standard_metadata_t standard_metadata) {
+    state start {
+        transition select(standard_metadata.ingress_port) {
+            default: parse_ethernet;
+        }
+    }
+
+    state parse_ethernet {
+        packet.extract(hdr.ethernet);
+        transition select(hdr.ethernet.ether_type) {
+            0x0800 : parse_ipv4;
+        }
+    }
+
+    state parse_ipv4 {
+        packet.extract(hdr.ipv4);
+        transition select(hdr.ipv4.protocol) {
+            8w17 : parse_udp;
+        }
+    }
+
+    state parse_udp {
+        packet.extract(hdr.udp);
+        transition select(hdr.udp.dst_port) {
+            2152: parse_gtp_header;
+            default: accept;
+        }
+    }
+
+    state parse_gtp_header {
+        packet.extract(hdr.gtp_header);
+        transition parse_internal_ipv4;
+    }
+
+     state parse_internal_ipv4 {
+        packet.extract(hdr.internal_ipv4);
+        transition select(hdr.internal_ipv4.protocol){
+        8w17: internal_parse_udp;
+        default: accept;
+        }
+        // transition accept;
+    }
+
+     state internal_parse_udp {
+        packet.extract(hdr.internal_udp);
+        transition accept;
+
+    }
+
+}
+
+control gtp_deparser(
+    packet_out packet,
+    in headers_t hdr) {
+    apply {
+
+        // INT Report 
+        packet.emit(hdr.report_ethernet);
+        packet.emit(hdr.report_ipv4);
+        packet.emit(hdr.report_udp);
+        packet.emit(hdr.report_fixed_header);
+        // PKT
+        packet.emit(hdr.ethernet);
+        packet.emit(hdr.ipv4);
+        packet.emit(hdr.udp);
+        packet.emit(hdr.gtp_header);
+        packet.emit(hdr.internal_ipv4);
+        packet.emit(hdr.internal_udp);
+
+    }
+}
+# 12 "main.p4" 2
+
+# 1 "include/table0.p4" 1
+
+
+
+
+
+
+control table0_control(inout headers_t hdr,
+                       inout local_metadata_t local_metadata,
+                       inout standard_metadata_t standard_metadata) {
+
+    action set_egress(port_t port) {
+        standard_metadata.egress_spec = port;
+    }
+
+    action drop() {
+        mark_to_drop(standard_metadata);
+    }
+
+    table table0 {
+        key = {
+
+            hdr.ethernet.ether_type : exact;
+            hdr.ethernet.src_addr : exact;
+            hdr.ethernet.dst_addr : exact;
+
+        }
+        actions = {
+            set_egress;
+            NoAction;
+
+        }
+        const default_action = NoAction();
+
+    }
+
+    apply {
+        table0.apply();
+     }
+}
+# 14 "main.p4" 2
+# 1 "include/table_add_gtp.p4" 1
+
+
+
+
+
+
+
+control table_add_gtp(inout headers_t hdr,
+                       inout local_metadata_t local_metadata,
+                       inout standard_metadata_t standard_metadata) {
+
+    action encap_gtp(teid_t teid, dst_t dst, port_t port, report_t report) {
+
+     standard_metadata.egress_spec = port;
+
+        //IP Gateway
+        hdr.internal_ipv4 = hdr.ipv4;
+        hdr.internal_udp = hdr.udp;
+
+        hdr.ipv4.setValid();
+        hdr.ipv4.src_addr = 0xa3a2ec56;
+        hdr.ipv4.dst_addr = dst;
+        hdr.ipv4.version = 4w4;
+        hdr.ipv4.ihl = IPV4_MIN_IHL;
+        hdr.ipv4.dscp = 0;
+        hdr.ipv4.ecn = 0;
+        hdr.ipv4.len = hdr.ipv4.len
+                + (20 + 8 + 8);
+        hdr.ipv4.identification = 0x1513;
+        hdr.ipv4.flags = 0;
+        hdr.ipv4.frag_offset = 0 ;
+        hdr.ipv4.ttl = DEFAULT_IPV4_TTL;
+        hdr.ipv4.protocol = 8w17;
+
+        //UDP
+        hdr.udp.setValid();
+        hdr.udp.src_port = 56005;
+        hdr.udp.dst_port = 2152;
+        hdr.udp.length_ = hdr.internal_ipv4.len + (8 +8);
+        hdr.udp.checksum = 0;
+
+        //insert GTP header
+        hdr.gtp_header.setValid();
+        hdr.gtp_header.ver = 0x01;
+        hdr.gtp_header.pt = 1;
+        hdr.gtp_header.rsvd = 0;
+        hdr.gtp_header.e = 0;
+        hdr.gtp_header.s = 0;
+        hdr.gtp_header.pn = 0;
+        hdr.gtp_header.msgtype = 0xff;
+        hdr.gtp_header.total_len = hdr.ipv4.len;
+        hdr.gtp_header.teid = teid;
+
+        local_metadata.int_meta.report = report;
+
+
+    }
+
+
+    table table_encap_gtp {
+        key = {
+            hdr.ipv4.dst_addr : exact;
+            hdr.ipv4.src_addr : exact;
+            hdr.ipv4.protocol : exact;
+
+        }
+        actions = {
+            encap_gtp;
+            NoAction;
+        }
+        const default_action = NoAction();
+
+    }
+
+    apply {
+        table_encap_gtp.apply();
+     }
+}
+# 15 "main.p4" 2
+# 1 "include/table_rem_gtp.p4" 1
+
+
+
+
+
+
+
+control table_rem_gtp(inout headers_t hdr,
+                        inout local_metadata_t local_metadata,
+                       inout standard_metadata_t standard_metadata) {
+
+    action decap_gtp(port_t port, report_t report) {
+
+        standard_metadata.egress_spec = port;
+
+        hdr.ipv4.setInvalid();
+        hdr.udp.setInvalid();
+        hdr.gtp_header.setInvalid();
+
+        local_metadata.int_meta.report = report;
+    }
+
+
+    action set_output_change_teid (port_t port, teid_t teid, report_t report) {
+
+        standard_metadata.egress_spec = port;
+        hdr.gtp_header.teid = teid;
+
+        local_metadata.int_meta.report = report;
+    }
+
+
+    table table_decap_gtp {
+        key = {
+            hdr.gtp_header.teid : exact;
+        }
+        actions = {
+            decap_gtp;
+            set_output_change_teid;
+            NoAction;
+        }
+        const default_action = NoAction();
+
+    }
+
+    apply {
+        table_decap_gtp.apply();
+     }
+}
+# 16 "main.p4" 2
+# 1 "include/int_report.p4" 1
+/*
+ * Copyright 2017-present Open Networking Foundation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+
+
+
+
+control process_int_report (
+    inout headers_t hdr,
+    inout local_metadata_t local_metadata,
+    inout standard_metadata_t standard_metadata) {
+
+    action add_report_fixed_header(switch_id_t switch_id, seq_t seq) {
+        /* Device should include its own INT metadata as embedded,
+         * we'll not use local_report_header for this purpose.
+         */
+        hdr.report_fixed_header.setValid();
+        hdr.report_fixed_header.ver = 1;
+        hdr.report_fixed_header.len = 4;
+        hdr.report_fixed_header.nproto = NPROTO_ETHERNET;
+        hdr.report_fixed_header.rep_md_bits = 0;
+        hdr.report_fixed_header.d = 0;
+        hdr.report_fixed_header.q = 0;
+        hdr.report_fixed_header.f = 1;
+        hdr.report_fixed_header.rsvd = 0;
+
+        hdr.report_fixed_header.hw_id = HW_ID;
+        hdr.report_fixed_header.sw_id = switch_id;
+
+        hdr.report_fixed_header.seq_no = seq;
+
+        hdr.report_fixed_header.ingress_tstamp = (bit<32>) standard_metadata.ingress_global_timestamp;
+        hdr.report_fixed_header.engress_tstamp = (bit<32>) standard_metadata.egress_global_timestamp;
+
+    }
+
+    action do_report_encapsulation(mac_t src_mac, mac_t mon_mac, ip_address_t src_ip,
+                        ip_address_t mon_ip, l4_port_t mon_port, switch_id_t switch_id, seq_t seq) {
+        //Report Ethernet Header
+        hdr.report_ethernet.setValid();
+        hdr.report_ethernet.dst_addr = mon_mac;
+        hdr.report_ethernet.src_addr = src_mac;
+        hdr.report_ethernet.ether_type = 0x0800;
+
+        //Report IPV4 Header
+        hdr.report_ipv4.setValid();
+        hdr.report_ipv4.version = 4w4;
+        hdr.report_ipv4.ihl = 4w5;
+        hdr.report_ipv4.dscp = 6w0;
+        hdr.report_ipv4.ecn = 2w0;
+        /* Total Len is report_ipv4_len + report_udp_len + report_fixed_hdr_len + ethernet_len + ipv4_totalLen */
+        hdr.report_ipv4.len = (bit<16>) IPV4_MIN_HEAD_LEN + (bit<16>) UDP_HEADER_LEN + (bit<16>) REPORT_FIXED_HEADER_LEN +
+                              (bit<16>) ETH_HEADER_LEN + (bit<16>) IPV4_MIN_HEAD_LEN + (bit<16>) UDP_HEADER_LEN;
+        /* Dont Fragment bit should be set */
+        hdr.report_ipv4.identification = 0;
+        hdr.report_ipv4.flags = 0;
+        hdr.report_ipv4.frag_offset = 0;
+        hdr.report_ipv4.ttl = REPORT_HDR_TTL;
+        hdr.report_ipv4.protocol = 8w17;
+        hdr.report_ipv4.src_addr = src_ip;
+        hdr.report_ipv4.dst_addr = mon_ip;
+
+        //Report UDP Header
+        hdr.report_udp.setValid();
+        hdr.report_udp.src_port = 0;
+        hdr.report_udp.dst_port = mon_port;
+        hdr.report_udp.length_ = (bit<16>) UDP_HEADER_LEN + (bit<16>) REPORT_FIXED_HEADER_LEN +
+                                 (bit<16>) ETH_HEADER_LEN + (bit<16>) IPV4_MIN_HEAD_LEN + (bit<16>) UDP_HEADER_LEN;
+
+        local_metadata.compute_checksum = true;
+        add_report_fixed_header(switch_id, seq);
+
+        truncate((bit<32>)hdr.report_ipv4.len + (bit<32>) ETH_HEADER_LEN);
+    }
+
+    // Cloned packet is forwarded according to the mirroring_add command
+    table tb_generate_report {
+        key = {
+            (standard_metadata.instance_type == BMV2_V1MODEL_INSTANCE_TYPE_INGRESS_CLONE) : exact @name("report_is_true");
+            hdr.ipv4.dst_addr : exact;
+
+        }
+        actions = {
+            do_report_encapsulation;
+            @defaultonly nop();
+        }
+        default_action = nop;
+    }
+
+    apply {
+        tb_generate_report.apply();
+    }
+}
+# 17 "main.p4" 2
+
+
+
+
+
+control ingress (
+    inout headers_t hdr,
+    inout local_metadata_t local_metadata,
+    inout standard_metadata_t standard_metadata) {
+
+    apply {
+        table0_control.apply(hdr, local_metadata, standard_metadata);
+
+        if(!hdr.gtp_header.isValid()) {
+            table_add_gtp.apply(hdr, local_metadata, standard_metadata);
+        }
+        else {
+             table_rem_gtp.apply(hdr, local_metadata, standard_metadata);
+        }
+
+        if (local_metadata.int_meta.report == 0x01) {
+                //clone packet for Telemetry Report
+                clone3(CloneType.I2E, REPORT_MIRROR_SESSION_ID, standard_metadata);
+        }
+
+    }
+}
+
+control egress (
+    inout headers_t hdr,
+    inout local_metadata_t local_metadata,
+    inout standard_metadata_t standard_metadata) {
+
+    apply {
+
+     if ((standard_metadata.instance_type == BMV2_V1MODEL_INSTANCE_TYPE_INGRESS_CLONE)) {
+                process_int_report.apply(hdr, local_metadata, standard_metadata);
+            }
+ }
+}
+
+V1Switch(
+    gtp_parser(),
+    verify_checksum_control(),
+    ingress(),
+    egress(),
+    compute_checksum_control(),
+    gtp_deparser()
+) main;

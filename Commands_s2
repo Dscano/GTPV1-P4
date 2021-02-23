@@ -1,0 +1,33 @@
+mirroring_add 500 4
+
+table_add table0 set_egress 2054 00:04:00:00:00:00 00:04:00:00:00:03 => 2
+table_add table0 set_egress 2054 00:04:00:00:00:03 00:04:00:00:00:00 => 1
+
+table_add table0 set_egress 2048 00:04:00:00:00:00 00:04:00:00:00:03 => 2
+table_add table0 set_egress 2048 00:04:00:00:00:03 00:04:00:00:00:00 => 1
+
+table_add table0 set_egress 34667 00:04:00:00:00:00 00:04:00:00:00:03 => 2
+table_add table0 set_egress 34667 00:04:00:00:00:03 00:04:00:00:00:00 => 1
+
+table_add table0 set_egress 2054 00:04:00:00:00:03 ff:ff:ff:ff:ff:ff => 1
+table_add table0 set_egress 2054 00:04:00:00:00:00 ff:ff:ff:ff:ff:ff => 2
+
+table_add table0 set_egress 2054 00:04:00:00:00:01 00:04:00:00:00:02 => 3
+table_add table0 set_egress 2054 00:04:00:00:00:02 00:04:00:00:00:01 => 1
+
+table_add table0 set_egress 2048 00:04:00:00:00:01 00:04:00:00:00:02 => 3
+table_add table0 set_egress 2048 00:04:00:00:00:02 00:04:00:00:00:01 => 1
+
+table_add table0 set_egress 34667 00:04:00:00:00:01 00:04:00:00:00:02 => 3
+table_add table0 set_egress 34667 00:04:00:00:00:02 00:04:00:00:00:01 => 1
+
+table_add table0 set_egress 2054 00:04:00:00:00:01 ff:ff:ff:ff:ff:ff => 3
+table_add table0 set_egress 2054 00:04:00:00:00:02 ff:ff:ff:ff:ff:ff => 1
+
+table_add table_decap_gtp set_output_change_teid 1572912 => 2 1572899 0x01
+table_add table_decap_gtp decap_gtp 8888888 => 3 0x01
+
+table_add tb_generate_report do_report_encapsulation 0x01 163.162.13.196 => 00:04:00:00:00:00 00:04:00:00:00:10 127.0.0.1 10.0.0.10 54321 0x0b 0x01
+
+
+

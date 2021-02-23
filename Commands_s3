@@ -1,0 +1,16 @@
+//mirroring_add 500 3
+table_add table0 set_egress 2054 00:04:00:00:00:00 00:04:00:00:00:03 => 2
+table_add table0 set_egress 2054 00:04:00:00:00:03 00:04:00:00:00:00 => 1
+
+table_add table0 set_egress 2048 00:04:00:00:00:00 00:04:00:00:00:03 => 2
+table_add table0 set_egress 2048 00:04:00:00:00:03 00:04:00:00:00:00 => 1
+
+table_add table0 set_egress 34667 00:04:00:00:00:00 00:04:00:00:00:03 => 2
+table_add table0 set_egress 34667 00:04:00:00:00:03 00:04:00:00:00:00 => 1
+
+table_add table0 set_egress 2054 00:04:00:00:00:03 ff:ff:ff:ff:ff:ff => 1
+table_add table0 set_egress 2054 00:04:00:00:00:00 ff:ff:ff:ff:ff:ff => 2
+
+table_add table_decap_gtp decap_gtp 1572899 => 2 0x00
+
+//table_add tb_generate_report do_report_encapsulation 0x01 => 00:04:00:00:00:00 00:04:00:00:00:10 127.0.0.1 10.0.0.10 54321  0x0c
