@@ -10,6 +10,10 @@ The folder/files contain:
 * `Simpe_network_topology`: is a python script for creating a mininet network.
 * `Write_entries_scan`: is a python script for creating flow rules.
 
+## Table0 in GTPV1-P4 pipeline
+
+This table is redundant, because it's steer the traffic. In other word, the `table_encap_gtp` and  the `table_decap_gtp` have actions that are able to apply the GTP encap/decap and forward the traffic to a certain port. The `table0` have an action that simply forward a pkt from an input port to a certain aotput port. This table was introduced in the pipeline bacause during the development phase of the P4 program I used `iperf3` as a traffic generator, without this table the `iperf3` "management pkt" are not forwarded from the client to the server. In other word the `iperf3` connection fails. When I moved the GTPV1-P4 pipeline in a real enviroment I removed the `table0` from the pipeline and the real traffic generated in my real network is succesfully GTP encapsulated/decapsulated/steered.
+
 ## Steps to run GTPV1-P4 on Mininet
 
 Copy the file `Simpe_network_topology` in the folder `behavioral-model/mininet`.
