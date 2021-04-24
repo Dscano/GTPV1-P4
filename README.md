@@ -1,6 +1,6 @@
 # GTPV1-P4
 
-This P4 programm provides [![](https://en.wikipedia.org/wiki/GPRS_Tunnelling_Protocol)](GTP.v1) encapsulation/decapsulation/steering for ICMP and UDP traffic. Furthermore you can get hop latency via postcard telemetry from each node of the network.
+This P4 programm provides [GTP.v1][GTP.v1] encapsulation/decapsulation/steering for ICMP and UDP traffic. Furthermore you can get hop latency via postcard telemetry from each node of the network.
 
 The folder/files contain:
 * `Graph`: contains the workflows of each part of the P4 piplenies, e.i, parser, ingress pipeline, egress pipeline, etc.
@@ -10,7 +10,8 @@ The folder/files contain:
 * `Simpe_network_topology`: is a python script for creating a mininet network.
 * `Write_entries_scan`: is a python script for creating flow rules.
 
-## Steps to run GTPV1-P4
+## Steps to run GTPV1-P4 on Mininet
+
 
 To run the program:
 
@@ -31,4 +32,7 @@ documentation.
 For example, to run a linear topology with 3 switches:
 
     docker run --privileged --rm -it opennetworking/p4mn --topo linear,3
-
+    
+## Steps to run GTPV1-P4 on a single switch
+   
+[GTP.v1]: https://en.wikipedia.org/wiki/GPRS_Tunnelling_Protocol
