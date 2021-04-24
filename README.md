@@ -42,6 +42,20 @@ The `Command files`, in this repository, are written taking into account:
 
     
 ## Steps to run GTPV1-P4 on a single switch
-   
+
+To run a single [BMv2][BMv2] switch with GTPV1-P4 pipeline:
+
+    sudo ./simple_switch -i 0@<iface0> -i 1@<iface1> ../main.json 
+    
+To configure/inspect the flow rules in each switch by hand, you have to access the switch via `Simple_switch_CLI`, provided by behavioral model, e.g., 
+
+    sudo Simple_switch_CLI --thrift-port portNumber
+    
+Once you accessed the switch via CLI you are able to configure the flow rules in each table via the commands provided by the CLI, e.g. `table_add`.
+
+To load a set of flow rules in a switch from a file you can use:
+
+    sudo Simple_switch_CLI --thrift-port portNumber < .../Commands_s1.txt
+    
 [GTP.v1]: https://en.wikipedia.org/wiki/GPRS_Tunnelling_Protocol
 [BMv2]: https://github.com/p4lang/behavioral-model
